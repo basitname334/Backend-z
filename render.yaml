@@ -1,0 +1,37 @@
+# Render Blueprint: AI Interviewer Backend
+# Deploys PostgreSQL + Docker web service. Use with "New > Blueprint" in Render dashboard.
+
+databases:
+  - name: ai-interviewer-db
+    databaseName: ai_interviewer
+    plan: free
+    region: oregon
+
+services:
+  - type: web
+    runtime: docker
+    name: ai-interviewer-backend
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-interviewer-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: REDIS_URL
+        value: memory
+      - key: FRONTEND_URL
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

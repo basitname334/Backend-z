@@ -1,0 +1,165 @@
+// AI Interviewer Platform - PostgreSQL via Prisma
+// Run: npx prisma generate   then   npx prisma db push   or   npx prisma migrate dev
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(255)
+  passwordHash String  @map("password_hash") @db.VarChar(255)
+  name         String?  @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  scheduledInterviews ScheduledInterview[]
+
+  @@map("users")
+}
+
+model Candidate {
+  id         String   @id @default(uuid()) @db.Uuid
+  email      String?  @db.VarChar(255)
+  name       String?  @db.VarChar(255)
+  externalId String?  @map("external_id") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  interviews Interview[]
+  applications Application[]
+
+  @@map("candidates")
+}
+
+model Position {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String   @db.VarChar(255)
+  description String?  @db.Text
+  requirements String?  @db.Text
+  location    String?  @db.VarChar(255)
+  salaryRange String?  @db.VarChar(100) @map("salary_range")
+  role        String   @db.VarChar(50)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  interviews         Interview[]
+  questionTemplates  QuestionTemplate[]
+  scheduledInterviews ScheduledInterview[]
+  applications       Application[]
+
+  @@map("positions")
+}
+
+model Application {
+  id          String   @id @default(uuid()) @db.Uuid
+  candidateId String   @map("candidate_id") @db.Uuid
+  positionId  String   @map("position_id") @db.Uuid
+  resumeUrl   String?  @map("resume_url") @db.VarChar(255)
+  status      String   @default("pending") @db.VarChar(20)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  candidate Candidate @relation(fields: [candidateId], references: [id])
+  position  Position  @relation(fields: [positionId], references: [id])
+  scheduledInterviews ScheduledInterview[]
+
+  @@map("applications")
+}
+
+model Interview {
+  id         String    @id @default(uuid()) @db.Uuid
+  candidateId String   @map("candidate_id") @db.Uuid
+  positionId  String?  @map("position_id") @db.Uuid
+  role        String   @db.VarChar(50)
+  status      String   @default("scheduled") @db.VarChar(20)
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
+  endedAt     DateTime? @map("ended_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  candidate Candidate  @relation(fields: [candidateId], references: [id])
+  position  Position?  @relation(fields: [positionId], references: [id])
+  report    Report?
+  scheduledInterviews ScheduledInterview[]
+
+  @@index([candidateId])
+  @@index([status])
+  @@map("interviews")
+}
+
+model Report {
+  id                   String   @id @default(uuid()) @db.Uuid
+  interviewId          String   @unique @map("interview_id") @db.Uuid
+  overallScore         Decimal? @map("overall_score") @db.Decimal(5, 2)
+  maxScore             Decimal? @map("max_score") @db.Decimal(5, 2)
+  recommendation       String?  @db.VarChar(20)
+  summary              String?  @db.Text
+  redFlags             Json     @default("[]") @map("red_flags")
+  strengths            Json     @default("[]") @map("strengths")
+  improvements         Json     @default("[]") @map("improvements")
+  competencies         Json     @default("[]") @map("competencies")
+  questionAnswerSummary Json    @default("[]") @map("question_answer_summary")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@index([interviewId])
+  @@map("reports")
+}
+
+model Competency {
+  id          String   @id @db.VarChar(100)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("competencies")
+}
+
+model QuestionTemplate {
+  id             String   @id @default(uuid()) @db.Uuid
+  positionId     String?  @map("position_id") @db.Uuid
+  role           String   @db.VarChar(50)
+  phase          String   @db.VarChar(20)
+  difficulty     String   @db.VarChar(20)
+  text           String   @db.Text
+  competencyIds  String[] @default([]) @map("competency_ids")
+  followUpPrompt String?  @map("follow_up_prompt") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  position Position? @relation(fields: [positionId], references: [id])
+
+  @@index([role, phase])
+  @@map("question_templates")
+}
+
+model ScheduledInterview {
+  id             String    @id @default(uuid()) @db.Uuid
+  candidateEmail String    @map("candidate_email") @db.VarChar(255)
+  candidateName  String?   @map("candidate_name") @db.VarChar(255)
+  role           String    @db.VarChar(50)
+  positionId     String?   @map("position_id") @db.Uuid
+  scheduledAt    DateTime  @map("scheduled_at") @db.Timestamptz
+  status         String    @default("scheduled") @db.VarChar(20)
+  joinToken      String    @unique @map("join_token") @db.VarChar(64)
+  interviewId    String?   @map("interview_id") @db.Uuid
+  createdById    String?   @map("created_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  position      Position?    @relation(fields: [positionId], references: [id])
+  interview     Interview?   @relation(fields: [interviewId], references: [id])
+  createdBy     User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  applicationId String?      @map("application_id") @db.Uuid
+  application   Application? @relation(fields: [applicationId], references: [id])
+
+  @@index([joinToken])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("scheduled_interviews")
+}

@@ -1,0 +1,50 @@
+# Dependencies (reinstalled in container)
+node_modules
+.pnp
+.pnp.js
+
+# Environment (inject at runtime via Render)
+.env
+.env.*
+!.env.example
+
+# Build / output (rebuilt in container)
+dist
+build
+*.tsbuildinfo
+
+# Logs and temp
+logs
+*.log
+uploads
+temp
+tmp
+
+# IDE / OS
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# Test and coverage
+coverage
+.nyc_output
+.jest
+*.test.ts
+*.spec.ts
+
+# Git
+.git
+.gitignore
+
+# Docs and local scripts (not needed in image)
+README.md
+*.md
+start.sh
+dev.log
+
+# Native / local tools (whisper.cpp is included for Docker build)
+
+# Docker (keep docker-entry.sh so it can be copied into image)
+Dockerfile
+.dockerignore
