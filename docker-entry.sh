@@ -3,6 +3,7 @@ set -e
 
 # Ollama: internal only (127.0.0.1), so Render does not treat it as the web service
 export OLLAMA_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
+export OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-$OLLAMA_HOST}"
 
 # Start Ollama in the background; must not be the main process so Render sees Node on PORT
 echo "Starting Ollama (background)..."

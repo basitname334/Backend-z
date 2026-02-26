@@ -53,38 +53,37 @@ async function start() {
     maxHttpBufferSize: 1e8, // 100 MB for audio chunks
   });
 
-  // Initialize services
-  logger.info('Initializing services...');
-
-  // Check Ollama only when OpenRouter is not configured.
-  if (!config.ai.openRouterApiKey) {
-    const ollamaHealthy = await llmService.healthCheck();
-    if (!ollamaHealthy) {
-      logger.warn('Ollama is not accessible. Please ensure Ollama is running: ollama serve');
-    }
-  } else {
-    logger.info('OpenRouter configured; skipping Ollama health check');
-  }
-
-  // Initialize STT service
-  const sttInitialized = await sttService.initialize();
-  if (!sttInitialized) {
-    logger.warn('STT service initialization failed. Voice transcription may not work properly.');
-  }
-
-  // Initialize WebRTC signaling service
-  const signalingService = new SignalingService(io);
-  signalingService.startCleanupInterval();
-
-  logger.info('All services initialized');
-
-  // Start server: bind to 0.0.0.0 so Render (and any reverse proxy) can reach the app
+  // Bind port first so Render detects 0.0.0.0:PORT immediately; then run init (Ollama may still be starting).
   const host = '0.0.0.0';
   const port = config.port;
   const server = httpServer.listen(port, host, () => {
     logger.info(`Server listening on ${host}:${port} (env: ${config.env})`);
     logger.info(`WebRTC signaling ready`);
     logger.info(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+    // Init services after bind so port is open; never throw so deploy does not exit(1).
+    (async () => {
+      try {
+        logger.info('Initializing services...');
+        if (!config.ai.openRouterApiKey) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const ollamaHealthy = await llmService.healthCheck();
+          if (!ollamaHealthy) {
+            logger.warn('Ollama not ready yet; LLM may use fallback until Ollama is up.');
+          }
+        } else {
+          logger.info('OpenRouter configured; skipping Ollama health check');
+        }
+        const sttInitialized = await sttService.initialize();
+        if (!sttInitialized) {
+          logger.warn('STT service initialization failed. Voice transcription may not work properly.');
+        }
+        const signalingService = new SignalingService(io);
+        signalingService.startCleanupInterval();
+        logger.info('All services initialized');
+      } catch (e) {
+        logger.error('Service init failed (server is up)', e);
+      }
+    })();
   });
 
   return server;
