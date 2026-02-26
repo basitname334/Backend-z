@@ -11,7 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY whisper.cpp /build/whisper.cpp
+# Clone whisper.cpp (avoids COPY context issues; works in CI and locally)
+ARG WHISPER_CPP_REV=v1.8.3
+RUN git clone --depth 1 --branch ${WHISPER_CPP_REV} https://github.com/ggml-org/whisper.cpp.git /build/whisper.cpp
 
 RUN cd /build/whisper.cpp \
     && cmake -B build \
