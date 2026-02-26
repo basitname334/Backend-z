@@ -50,7 +50,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=4000
-ENV OLLAMA_HOST=127.0.0.1
+# Ollama internal only; Node app is the web service Render probes
+ENV OLLAMA_HOST=http://127.0.0.1:11434
 ENV OLLAMA_ORIGINS=*
 
 # Install Ollama (single binary; runs as ollama serve)

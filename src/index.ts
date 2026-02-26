@@ -78,10 +78,11 @@ async function start() {
 
   logger.info('All services initialized');
 
-  // Start server
-  const host = process.env.HOST || '0.0.0.0';
-  const server = httpServer.listen(config.port, host, () => {
-    logger.info(`Server listening on ${host}:${config.port} (env: ${config.env})`);
+  // Start server: bind to 0.0.0.0 so Render (and any reverse proxy) can reach the app
+  const host = '0.0.0.0';
+  const port = config.port;
+  const server = httpServer.listen(port, host, () => {
+    logger.info(`Server listening on ${host}:${port} (env: ${config.env})`);
     logger.info(`WebRTC signaling ready`);
     logger.info(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
   });

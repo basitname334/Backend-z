@@ -8,6 +8,7 @@ dotenv.config();
 
 export const config = {
   env: process.env.NODE_ENV || 'development',
+  // Render and Docker: always use PORT from env so the web process binds to the expected port
   port: parseInt(process.env.PORT || '4000', 10),
   apiPrefix: process.env.API_PREFIX || '/api/v1',
 
