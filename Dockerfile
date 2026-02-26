@@ -54,11 +54,13 @@ ENV OLLAMA_HOST=127.0.0.1
 ENV OLLAMA_ORIGINS=*
 
 # Install Ollama (single binary; runs as ollama serve)
+# Ollama now ships .tar.zst (zstd), not .tgz; archive extracts to /usr (usr/bin/ollama)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    && curl -fsSL https://ollama.com/download/ollama-linux-amd64.tgz | tar xz -C /usr/local/bin \
-    && chmod +x /usr/local/bin/ollama \
+    zstd \
+    && curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst | tar --zstd -x -C /usr \
+    && chmod +x /usr/bin/ollama \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy whisper-cli and model from whisper-builder
