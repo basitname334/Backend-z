@@ -1,8 +1,9 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { URL } from 'url';
-import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
+
+// pdf-parse is loaded only when parsing PDFs (lazy) to avoid browser-only code running at startup in Node
 
 export async function buildResumeContext(input: {
   resumeUrl?: string | null;
@@ -35,12 +36,18 @@ async function readResumeText(resumeUrl?: string | null): Promise<string> {
   try {
     const fileBuffer = await fs.readFile(localPath);
     if (ext === '.pdf') {
-      const parser = new PDFParse({ data: fileBuffer });
       try {
-        const result = await parser.getText();
-        return cleanText(result.text).slice(0, 3500);
-      } finally {
-        await parser.destroy();
+        const { PDFParse } = await import('pdf-parse');
+        const parser = new PDFParse({ data: fileBuffer });
+        try {
+          const result = await parser.getText();
+          return cleanText(result.text).slice(0, 3500);
+        } finally {
+          await parser.destroy();
+        }
+      } catch (pdfErr) {
+        console.warn('[ResumeContext] PDF parse failed:', pdfErr instanceof Error ? pdfErr.message : pdfErr);
+        return '';
       }
     }
     if (ext === '.docx') {
