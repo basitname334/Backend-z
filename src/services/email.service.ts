@@ -52,6 +52,10 @@ export async function sendInterviewScheduleEmail(input: {
   message?: string;
 }): Promise<{ sent: boolean; error?: string }> {
   try {
+    if (!config.mail.enabled) {
+      console.info('[Mail] Sending disabled (MAIL_ENABLED=false). Join URL still returned.');
+      return { sent: false, error: 'Email sending disabled' };
+    }
     const tx = getTransporter();
     if (!tx) {
       const err =

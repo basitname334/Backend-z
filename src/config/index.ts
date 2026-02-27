@@ -59,6 +59,8 @@ export const config = {
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
 
   mail: {
+    /** Set to 'false' to disable sending (schedule flow still runs; join URL is returned). Re-enable when ready. */
+    enabled: process.env.MAIL_ENABLED !== 'false',
     service: process.env.MAIL_SERVICE || process.env.SMTP_SERVICE || '',
     host: process.env.MAIL_HOST || process.env.SMTP_HOST || process.env.EMAIL_HOST || '',
     port: parseInt(process.env.MAIL_PORT || process.env.SMTP_PORT || '587', 10),
