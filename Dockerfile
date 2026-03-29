@@ -54,6 +54,9 @@ ENV PORT=4000
 # Ollama bind to loopback only (host:port); Node app is the web service Render probes
 ENV OLLAMA_HOST=127.0.0.1:11434
 ENV OLLAMA_ORIGINS=*
+# Keep one model / low parallel requests by default (raise on Northflank if you add RAM)
+ENV OLLAMA_MAX_LOADED_MODELS=1
+ENV OLLAMA_NUM_PARALLEL=1
 
 # Install Ollama (single binary; runs as ollama serve)
 # Ollama now ships .tar.zst (zstd), not .tgz; archive extracts to /usr (usr/bin/ollama)
