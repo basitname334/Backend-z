@@ -9,9 +9,12 @@ import dotenv from 'dotenv';
 const backendRoot = path.resolve(__dirname, '../..');
 dotenv.config({ path: path.join(backendRoot, '.env') });
 
+const parsedPort = parseInt(process.env.PORT || '4000', 10);
+const listenPort = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 4000;
+
 export const config = {
   env: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '4000', 10),
+  port: listenPort,
   apiPrefix: process.env.API_PREFIX || '/api/v1',
 
   jwt: {

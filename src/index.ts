@@ -11,17 +11,12 @@ import { llmService } from './services/llm.service';
 import { sttService } from './services/stt.service';
 import { logger } from './config/logger';
 
-async function start() {
-  try {
-    await bootstrapDatabase();
-  } catch (e) {
-    logger.warn('Database bootstrap had errors (some tables may already exist):', (e as Error).message);
-  }
+/** Bind all interfaces so platform proxies (Code.run, Northflank, K8s) can reach the container. */
+const LISTEN_HOST = '0.0.0.0';
 
-  // Create HTTP server
+async function start() {
   const httpServer = createServer(app);
 
-  // Initialize Socket.io
   const io = new SocketIOServer(httpServer, {
     cors: {
       origin: process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -31,54 +26,69 @@ async function start() {
     maxHttpBufferSize: 1e8, // 100 MB for audio chunks
   });
 
-  // Mail: log which sender is used so you can confirm MAIL_FROM from .env
-  if (config.mail.user && config.mail.from) {
-    logger.info(`[Mail] Sender configured: ${config.mail.from} (restart backend after changing .env)`);
-  } else {
-    logger.warn('[Mail] Not configured. Set MAIL_USER, MAIL_PASS, MAIL_FROM in .env to send emails.');
-  }
+  const port = config.port;
 
-  // Initialize services
-  logger.info('Initializing services...');
-
-  // Check Ollama only when OpenRouter is not configured.
-  if (!config.ai.openRouterApiKey) {
-    const ollamaHealthy = await llmService.healthCheck();
-    if (!ollamaHealthy) {
-      logger.warn('Ollama is not accessible. Please ensure Ollama is running: ollama serve');
-    }
-  } else {
-    logger.info('OpenRouter configured; skipping Ollama health check');
-  }
-
-  // Initialize STT service
-  const sttInitialized = await sttService.initialize();
-  if (!sttInitialized) {
-    logger.warn('STT service initialization failed. Voice transcription may not work properly.');
-  }
-
-  // Initialize WebRTC signaling service
-  const signalingService = new SignalingService(io);
-  signalingService.startCleanupInterval();
-
-  // Optional: start avatar queue worker (runs when Redis is configured)
-  try {
-    const { startAvatarWorker } = await import('./queues/avatarQueue');
-    startAvatarWorker();
-  } catch (_) {
-    // Queue optional
-  }
-
-  logger.info('All services initialized');
-
-  // Start server
-  const server = httpServer.listen(config.port, () => {
-    logger.info(`Server listening on port ${config.port} (env: ${config.env})`);
-    logger.info(`WebRTC signaling ready`);
-    logger.info(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+  // Listen immediately so edge health checks get TCP accept + /health (not "connection refused").
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(port, LISTEN_HOST, () => {
+      httpServer.off('error', reject);
+      logger.info(`Server listening on ${LISTEN_HOST}:${port} (env: ${config.env})`);
+      logger.info(`WebRTC signaling ready`);
+      logger.info(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+      resolve();
+    });
   });
 
-  return server;
+  void runDeferredStartup(io);
+
+  return httpServer;
+}
+
+async function runDeferredStartup(io: SocketIOServer): Promise<void> {
+  try {
+    try {
+      await bootstrapDatabase();
+    } catch (e) {
+      logger.warn('Database bootstrap had errors (some tables may already exist):', (e as Error).message);
+    }
+
+    if (config.mail.user && config.mail.from) {
+      logger.info(`[Mail] Sender configured: ${config.mail.from} (restart backend after changing .env)`);
+    } else {
+      logger.warn('[Mail] Not configured. Set MAIL_USER, MAIL_PASS, MAIL_FROM in .env to send emails.');
+    }
+
+    logger.info('Initializing services...');
+
+    if (!config.ai.openRouterApiKey) {
+      const ollamaHealthy = await llmService.healthCheck();
+      if (!ollamaHealthy) {
+        logger.warn('Ollama is not accessible. Please ensure Ollama is running: ollama serve');
+      }
+    } else {
+      logger.info('OpenRouter configured; skipping Ollama health check');
+    }
+
+    const sttInitialized = await sttService.initialize();
+    if (!sttInitialized) {
+      logger.warn('STT service initialization failed. Voice transcription may not work properly.');
+    }
+
+    const signalingService = new SignalingService(io);
+    signalingService.startCleanupInterval();
+
+    try {
+      const { startAvatarWorker } = await import('./queues/avatarQueue');
+      startAvatarWorker();
+    } catch (_) {
+      // Queue optional
+    }
+
+    logger.info('All services initialized');
+  } catch (e) {
+    logger.error('Deferred startup failed (HTTP server is still up)', e);
+  }
 }
 
 const serverPromise = start().catch((e) => {
