@@ -47,11 +47,13 @@ export class InterviewEngineService {
     }
 
     /**
-     * Start a new interview session
+     * Start a new interview session.
+     * interviewerVoice: 'eina' | 'basit' or 'male'/'men'/'boys' for Basit; default Eina.
      */
     async startInterview(
         sessionId: string,
-        category: string = 'Technical'
+        category: string = 'Technical',
+        interviewerVoice?: string
     ): Promise<{ greeting: string; firstQuestion: string }> {
         try {
             const session: InterviewSession = {
@@ -66,8 +68,8 @@ export class InterviewEngineService {
 
             this.sessions.set(sessionId, session);
 
-            // Generate greeting
-            const greeting = this.generateGreeting(category);
+            const name = this.getInterviewerName(interviewerVoice);
+            const greeting = this.generateGreeting(category, name);
 
             // Generate first question (easy difficulty)
             const firstQuestion = await this.getNextQuestion(sessionId, 'easy');
@@ -291,11 +293,18 @@ export class InterviewEngineService {
         return false;
     }
 
+    /** Eina (default) or Basit when user selects male/boys. */
+    private getInterviewerName(voiceOrGender?: string): string {
+        const v = (voiceOrGender || '').toLowerCase();
+        if (v === 'male' || v === 'men' || v === 'boys' || v === 'basit') return 'Basit';
+        return 'Eina';
+    }
+
     /**
      * Generate greeting message
      */
-    private generateGreeting(category: string): string {
-        return `Hello! Welcome to your ${category} interview. I'm your AI interviewer today. I'll be asking you a series of questions to assess your skills and experience. Please answer naturally and take your time. Let's begin!`;
+    private generateGreeting(category: string, interviewerName: string = 'Eina'): string {
+        return `Hello! I'm ${interviewerName}, your AI interviewer. Welcome to your ${category} interview. I'll be asking you a series of questions to assess your skills and experience. Please answer naturally and take your time. Let's begin!`;
     }
 
     /**

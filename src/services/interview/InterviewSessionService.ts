@@ -127,6 +127,20 @@ export class InterviewSessionService {
   }
 
   /**
+   * Update a specific turn's avatarVideo (e.g. after async avatar generation).
+   * Used by the avatar queue worker to attach the video URL when generation completes.
+   */
+  async updateTurnAvatarVideo(interviewId: string, turnId: string, videoUrl: string): Promise<boolean> {
+    const state = await this.getState(interviewId);
+    if (!state) return false;
+    const turn = state.turns.find((t) => t.id === turnId);
+    if (!turn || turn.role !== 'ai') return false;
+    turn.avatarVideo = videoUrl;
+    await this.setState(interviewId, state);
+    return true;
+  }
+
+  /**
    * End the interview: persist end time in DB, optionally store final report,
    * and clear or retain Redis state (we retain for a while for report generation).
    */

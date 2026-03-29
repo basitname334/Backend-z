@@ -1,6 +1,4 @@
-// AI Interviewer Platform - PostgreSQL via Prisma
-// Run: npx prisma generate   then   npx prisma db push   or   npx prisma migrate dev
-
+// AI Interviewer Platform - Prisma schema (matches schema.sql + schema-scheduled.sql + schema-questions-extend.sql)
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,155 +9,107 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique @db.VarChar(255)
-  passwordHash String  @map("password_hash") @db.VarChar(255)
-  name         String?  @db.VarChar(255)
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
-
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
   scheduledInterviews ScheduledInterview[]
-
-  @@map("users")
 }
 
 model Candidate {
-  id         String   @id @default(uuid()) @db.Uuid
-  email      String?  @db.VarChar(255)
-  name       String?  @db.VarChar(255)
-  externalId String?  @map("external_id") @db.VarChar(255)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
-
+  id         String   @id @default(uuid())
+  email      String?
+  name       String?
+  externalId String?   @map("external_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
   interviews Interview[]
-  applications Application[]
-
-  @@map("candidates")
 }
 
 model Position {
-  id          String   @id @default(uuid()) @db.Uuid
-  title       String   @db.VarChar(255)
-  description String?  @db.Text
-  requirements String?  @db.Text
-  location    String?  @db.VarChar(255)
-  salaryRange String?  @db.VarChar(100) @map("salary_range")
-  role        String   @db.VarChar(50)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  interviews         Interview[]
-  questionTemplates  QuestionTemplate[]
+  id        String   @id @default(uuid())
+  title     String
+  role      String
+  createdAt DateTime @default(now()) @map("created_at")
+  interviews       Interview[]
+  questionTemplates QuestionTemplate[]
   scheduledInterviews ScheduledInterview[]
-  applications       Application[]
-
-  @@map("positions")
-}
-
-model Application {
-  id          String   @id @default(uuid()) @db.Uuid
-  candidateId String   @map("candidate_id") @db.Uuid
-  positionId  String   @map("position_id") @db.Uuid
-  resumeUrl   String?  @map("resume_url") @db.VarChar(255)
-  status      String   @default("pending") @db.VarChar(20)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
-
-  candidate Candidate @relation(fields: [candidateId], references: [id])
-  position  Position  @relation(fields: [positionId], references: [id])
-  scheduledInterviews ScheduledInterview[]
-
-  @@map("applications")
 }
 
 model Interview {
-  id         String    @id @default(uuid()) @db.Uuid
-  candidateId String   @map("candidate_id") @db.Uuid
-  positionId  String?  @map("position_id") @db.Uuid
-  role        String   @db.VarChar(50)
-  status      String   @default("scheduled") @db.VarChar(20)
-  startedAt   DateTime? @map("started_at") @db.Timestamptz
-  endedAt     DateTime? @map("ended_at") @db.Timestamptz
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-
-  candidate Candidate  @relation(fields: [candidateId], references: [id])
-  position  Position?  @relation(fields: [positionId], references: [id])
-  report    Report?
+  id         String    @id @default(uuid())
+  candidateId String   @map("candidate_id")
+  positionId String?  @map("position_id")
+  role       String
+  status     String   @default("scheduled")
+  startedAt  DateTime? @map("started_at")
+  endedAt    DateTime? @map("ended_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  candidate  Candidate @relation(fields: [candidateId], references: [id])
+  position   Position? @relation(fields: [positionId], references: [id])
+  report     Report?
   scheduledInterviews ScheduledInterview[]
-
-  @@index([candidateId])
-  @@index([status])
-  @@map("interviews")
 }
 
 model Report {
-  id                   String   @id @default(uuid()) @db.Uuid
-  interviewId          String   @unique @map("interview_id") @db.Uuid
+  id                   String   @id @default(uuid())
+  interviewId          String   @unique @map("interview_id")
   overallScore         Decimal? @map("overall_score") @db.Decimal(5, 2)
   maxScore             Decimal? @map("max_score") @db.Decimal(5, 2)
-  recommendation       String?  @db.VarChar(20)
+  recommendation       String?
   summary              String?  @db.Text
   redFlags             Json     @default("[]") @map("red_flags")
   strengths            Json     @default("[]") @map("strengths")
   improvements         Json     @default("[]") @map("improvements")
   competencies         Json     @default("[]") @map("competencies")
   questionAnswerSummary Json    @default("[]") @map("question_answer_summary")
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-
-  @@index([interviewId])
-  @@map("reports")
+  createdAt            DateTime @default(now()) @map("created_at")
+  interview            Interview @relation(fields: [interviewId], references: [id])
 }
 
 model Competency {
-  id          String   @id @db.VarChar(100)
-  name        String   @db.VarChar(255)
+  id          String   @id
+  name        String
   description String?  @db.Text
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  @@map("competencies")
+  createdAt   DateTime @default(now()) @map("created_at")
 }
 
 model QuestionTemplate {
-  id             String   @id @default(uuid()) @db.Uuid
-  positionId     String?  @map("position_id") @db.Uuid
-  role           String   @db.VarChar(50)
-  phase          String   @db.VarChar(20)
-  difficulty     String   @db.VarChar(20)
-  text           String   @db.Text
-  competencyIds  String[] @default([]) @map("competency_ids")
-  followUpPrompt String?  @map("follow_up_prompt") @db.Text
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  position Position? @relation(fields: [positionId], references: [id])
-
-  @@index([role, phase])
-  @@map("question_templates")
+  id               String   @id @default(uuid())
+  positionId       String?  @map("position_id")
+  role             String
+  phase            String
+  difficulty       String
+  text             String   @db.Text
+  competencyIds    String[] @default([]) @map("competency_ids")
+  followUpPrompt   String?  @map("follow_up_prompt") @db.Text
+  isCodingQuestion Boolean  @default(false) @map("is_coding_question")
+  starterCode      String?  @map("starter_code") @db.Text
+  language         String?
+  sortOrder        Int      @default(0) @map("sort_order")
+  createdAt        DateTime @default(now()) @map("created_at")
+  position         Position? @relation(fields: [positionId], references: [id])
 }
 
 model ScheduledInterview {
-  id             String    @id @default(uuid()) @db.Uuid
-  candidateEmail String    @map("candidate_email") @db.VarChar(255)
-  candidateName  String?   @map("candidate_name") @db.VarChar(255)
-  role           String    @db.VarChar(50)
-  positionId     String?   @map("position_id") @db.Uuid
-  scheduledAt    DateTime  @map("scheduled_at") @db.Timestamptz
-  status         String    @default("scheduled") @db.VarChar(20)
-  joinToken      String    @unique @map("join_token") @db.VarChar(64)
-  interviewId    String?   @map("interview_id") @db.Uuid
-  createdById    String?   @map("created_by") @db.Uuid
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-
-  position      Position?    @relation(fields: [positionId], references: [id])
-  interview     Interview?   @relation(fields: [interviewId], references: [id])
-  createdBy     User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  applicationId String?      @map("application_id") @db.Uuid
-  application   Application? @relation(fields: [applicationId], references: [id])
-
-  @@index([joinToken])
-  @@index([status])
-  @@index([scheduledAt])
-  @@map("scheduled_interviews")
+  id                 String   @id @default(uuid())
+  candidateEmail     String   @map("candidate_email")
+  candidateName      String?  @map("candidate_name")
+  role               String
+  preferredDifficulty String? @map("preferred_difficulty")
+  customQuestions    Json     @default("[]") @map("custom_questions")
+  positionId         String?  @map("position_id")
+  scheduledAt        DateTime @map("scheduled_at")
+  status             String   @default("scheduled")
+  joinToken          String   @unique @map("join_token")
+  interviewId        String?  @map("interview_id")
+  createdBy          String?  @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  position           Position? @relation(fields: [positionId], references: [id])
+  interview          Interview? @relation(fields: [interviewId], references: [id])
+  createdByUser      User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
 }

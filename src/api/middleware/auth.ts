@@ -111,3 +111,11 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction): v
   }
   next();
 }
+
+/** Community user: any logged-in admin, recruiter, or candidate. */
+export interface CommunityUser {
+  id: string;
+  type: 'admin' | 'recruiter' | 'candidate';
+  name: string | null;
+  email: string;
+}

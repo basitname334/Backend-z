@@ -1,6 +1,78 @@
 import { query } from './client';
 
 export async function ensureHiringFlowTables(): Promise<void> {
+  // Candidates must exist before applications; create minimal table if missing (e.g. no schema.sql run yet).
+  await query(`
+    CREATE TABLE IF NOT EXISTS candidates (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      email VARCHAR(255),
+      name VARCHAR(255),
+      external_id VARCHAR(255),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS candidate_accounts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      candidate_id UUID NOT NULL UNIQUE REFERENCES candidates(id) ON DELETE CASCADE,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_candidate_accounts_candidate_id ON candidate_accounts(candidate_id);
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS candidate_password_resets (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      email VARCHAR(255) NOT NULL,
+      code VARCHAR(10) NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_candidate_password_resets_email ON candidate_password_resets(email);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_candidate_password_resets_expires ON candidate_password_resets(expires_at);`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS recruiter_password_resets (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      email VARCHAR(255) NOT NULL,
+      code VARCHAR(10) NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_recruiter_password_resets_email ON recruiter_password_resets(email);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_recruiter_password_resets_expires ON recruiter_password_resets(expires_at);`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS candidate_career_preferences (
+      candidate_id UUID PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
+      preferred_roles TEXT[] DEFAULT '{}',
+      preferred_locations TEXT[] DEFAULT '{}',
+      career_goals TEXT,
+      auto_apply_enabled BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS tenants (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(255) NOT NULL,
+      slug VARCHAR(100) UNIQUE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
   await query(`
     CREATE TABLE IF NOT EXISTS positions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -83,21 +155,6 @@ export async function ensureHiringFlowTables(): Promise<void> {
 
   await query(`
     CREATE INDEX IF NOT EXISTS idx_applications_candidate_id ON applications(candidate_id);
-  `);
-
-  await query(`
-    CREATE TABLE IF NOT EXISTS candidate_accounts (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      candidate_id UUID NOT NULL UNIQUE REFERENCES candidates(id) ON DELETE CASCADE,
-      email VARCHAR(255) NOT NULL UNIQUE,
-      password_hash VARCHAR(255) NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-  `);
-
-  await query(`
-    CREATE INDEX IF NOT EXISTS idx_candidate_accounts_candidate_id ON candidate_accounts(candidate_id);
   `);
 
   await query(`

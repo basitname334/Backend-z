@@ -54,6 +54,7 @@ router.post(
         interviewId: result.interviewId,
         state: firstReply.state ?? result.state,
         firstReply: firstReply.reply,
+        avatarVideo: firstReply.avatarVideo,
       });
     } catch (e) {
       console.error('Interview start error', e);
@@ -89,6 +90,7 @@ router.post(
       res.json({
         state: result.state,
         nextReply: result.nextReply,
+        avatarVideo: result.avatarVideo,
         evaluation: result.evaluation,
         report: result.report,
       });

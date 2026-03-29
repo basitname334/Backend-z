@@ -96,7 +96,9 @@ export class QuestionStrategyEngine {
     const lastTurn = state.turns.length > 0 ? state.turns[state.turns.length - 1] : null;
     const lastQuestionId = lastTurn?.role === 'ai' ? lastTurn.questionId : null;
 
-    if (phase === 'coding' && state.role !== 'technical') return null;
+    const hasRecruiterCodingQuestion = (state.customQuestions ?? []).some((q) => q.isCodingQuestion);
+    // For non-technical roles, only enter the coding phase if the recruiter added a coding question
+    if (phase === 'coding' && state.role !== 'technical' && !hasRecruiterCodingQuestion) return null;
 
     if (forceNextPhase) {
       const next = this.nextPhase(phase);
@@ -125,14 +127,35 @@ export class QuestionStrategyEngine {
       }
     }
 
-    if (phase === 'coding' && state.role === 'technical') {
-      const codingQuestions = (state.customQuestions ?? []).filter((q) => q.isCodingQuestion);
+    if (phase === 'coding') {
+      const recruiterCodingQuestions = (state.customQuestions ?? []).filter((q) => q.isCodingQuestion);
+
+      // For non-technical roles: only serve the recruiter-specified coding question (no defaults)
+      if (state.role !== 'technical') {
+        if (recruiterCodingQuestions.length === 0) return null;
+        const problem = recruiterCodingQuestions[0]!;
+        const slotId = 'recruiter-coding-0';
+        if (state.topicCoverage[slotId]) return null;
+        return {
+          questionText: `We've finished the main part of the interview. As a final question, I'd like you to solve a short coding problem. Please switch to the **Code** tab — the editor and terminal will appear automatically.\n\n${problem.text}`,
+          questionId: slotId,
+          phase: 'coding',
+          difficulty: problem.difficulty,
+          competencyIds: ['technical_depth', 'problem_solving'],
+          isFollowUp: false,
+          isCodingQuestion: true,
+          starterCode: problem.starterCode ?? null,
+          language: problem.language ?? null,
+        };
+      }
+
+      // Technical role: use recruiter's coding questions if provided, otherwise fall back to defaults
       const defaultCoding: ScheduledCustomQuestion[] = [
         { text: 'Implement a function that reverses a string. Handle empty and single-character strings.', difficulty: 'easy', isCodingQuestion: true, language: 'javascript', starterCode: 'function reverseString(str) {\n  // your code here\n  return str;\n}' },
         { text: 'Write a function that checks if a string is a palindrome. Ignore case and non-alphanumeric characters.', difficulty: 'medium', isCodingQuestion: true, language: 'javascript', starterCode: 'function isPalindrome(str) {\n  // your code here\n  return false;\n}' },
         { text: 'Given an array of numbers, return the two indices whose values sum to a target. Assume exactly one solution exists.', difficulty: 'medium', isCodingQuestion: true, language: 'javascript', starterCode: 'function twoSum(nums, target) {\n  // your code here\n  return [];\n}' },
       ];
-      const pool = codingQuestions.length >= 3 ? codingQuestions.slice(0, 3) : defaultCoding;
+      const pool = recruiterCodingQuestions.length >= 3 ? recruiterCodingQuestions.slice(0, 3) : defaultCoding;
       const CODE_FOLLOW_UPS = [
         'What is the time complexity of your solution? Can you explain your approach?',
         'How would you test this solution? What edge cases did you consider?',

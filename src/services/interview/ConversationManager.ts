@@ -72,6 +72,7 @@ export class ConversationManager {
       codingStarterCode?: string | null;
       codingLanguage?: string | null;
       isCodingQuestion?: boolean;
+      avatarVideo?: string;
     }
   ): Turn {
     return {
@@ -84,6 +85,7 @@ export class ConversationManager {
       codingStarterCode: meta?.codingStarterCode,
       codingLanguage: meta?.codingLanguage,
       isCodingQuestion: meta?.isCodingQuestion,
+      avatarVideo: meta?.avatarVideo,
     };
   }
 

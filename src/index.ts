@@ -5,10 +5,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import app from './api/app';
 import { config } from './config';
-import { ensureScheduledTable } from './db/ensure-scheduled';
-import { ensureQuestionTemplatesTable } from './db/ensure-questions';
-import { ensureUsersTable } from './db/ensure-users';
-import { ensureHiringFlowTables } from './db/ensure-hiring-flow';
+import { bootstrapDatabase } from './db/bootstrap-db';
 import { SignalingService } from './services/signaling.service';
 import { llmService } from './services/llm.service';
 import { sttService } from './services/stt.service';
@@ -16,28 +13,9 @@ import { logger } from './config/logger';
 
 async function start() {
   try {
-    await ensureUsersTable();
-    logger.info('Users table ready');
+    await bootstrapDatabase();
   } catch (e) {
-    logger.warn('Could not ensure users table:', (e as Error).message);
-  }
-  try {
-    await ensureScheduledTable();
-    logger.info('Scheduled interviews table ready');
-  } catch (e) {
-    logger.warn('Could not ensure scheduled_interviews table (run schema.sql and schema-scheduled.sql if needed):', (e as Error).message);
-  }
-  try {
-    await ensureHiringFlowTables();
-    logger.info('Hiring flow tables ready');
-  } catch (e) {
-    logger.warn('Could not ensure hiring flow tables:', (e as Error).message);
-  }
-  try {
-    await ensureQuestionTemplatesTable();
-    logger.info('Question templates table ready');
-  } catch (e) {
-    logger.warn('Could not ensure question_templates table:', (e as Error).message);
+    logger.warn('Database bootstrap had errors (some tables may already exist):', (e as Error).message);
   }
 
   // Create HTTP server
@@ -53,37 +31,51 @@ async function start() {
     maxHttpBufferSize: 1e8, // 100 MB for audio chunks
   });
 
-  // Bind port first so Render detects 0.0.0.0:PORT immediately; then run init (Ollama may still be starting).
-  const host = '0.0.0.0';
-  const port = config.port;
-  const server = httpServer.listen(port, host, () => {
-    logger.info(`Server listening on ${host}:${port} (env: ${config.env})`);
+  // Mail: log which sender is used so you can confirm MAIL_FROM from .env
+  if (config.mail.user && config.mail.from) {
+    logger.info(`[Mail] Sender configured: ${config.mail.from} (restart backend after changing .env)`);
+  } else {
+    logger.warn('[Mail] Not configured. Set MAIL_USER, MAIL_PASS, MAIL_FROM in .env to send emails.');
+  }
+
+  // Initialize services
+  logger.info('Initializing services...');
+
+  // Check Ollama only when OpenRouter is not configured.
+  if (!config.ai.openRouterApiKey) {
+    const ollamaHealthy = await llmService.healthCheck();
+    if (!ollamaHealthy) {
+      logger.warn('Ollama is not accessible. Please ensure Ollama is running: ollama serve');
+    }
+  } else {
+    logger.info('OpenRouter configured; skipping Ollama health check');
+  }
+
+  // Initialize STT service
+  const sttInitialized = await sttService.initialize();
+  if (!sttInitialized) {
+    logger.warn('STT service initialization failed. Voice transcription may not work properly.');
+  }
+
+  // Initialize WebRTC signaling service
+  const signalingService = new SignalingService(io);
+  signalingService.startCleanupInterval();
+
+  // Optional: start avatar queue worker (runs when Redis is configured)
+  try {
+    const { startAvatarWorker } = await import('./queues/avatarQueue');
+    startAvatarWorker();
+  } catch (_) {
+    // Queue optional
+  }
+
+  logger.info('All services initialized');
+
+  // Start server
+  const server = httpServer.listen(config.port, () => {
+    logger.info(`Server listening on port ${config.port} (env: ${config.env})`);
     logger.info(`WebRTC signaling ready`);
     logger.info(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
-    // Init services after bind so port is open; never throw so deploy does not exit(1).
-    (async () => {
-      try {
-        logger.info('Initializing services...');
-        if (!config.ai.openRouterApiKey) {
-          await new Promise((r) => setTimeout(r, 2000));
-          const ollamaHealthy = await llmService.healthCheck();
-          if (!ollamaHealthy) {
-            logger.warn('Ollama not ready yet; LLM may use fallback until Ollama is up.');
-          }
-        } else {
-          logger.info('OpenRouter configured; skipping Ollama health check');
-        }
-        const sttInitialized = await sttService.initialize();
-        if (!sttInitialized) {
-          logger.warn('STT service initialization failed. Voice transcription may not work properly.');
-        }
-        const signalingService = new SignalingService(io);
-        signalingService.startCleanupInterval();
-        logger.info('All services initialized');
-      } catch (e) {
-        logger.error('Service init failed (server is up)', e);
-      }
-    })();
   });
 
   return server;

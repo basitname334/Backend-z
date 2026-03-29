@@ -1,9 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { URL } from 'url';
+import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
-
-// pdf-parse is loaded only when parsing PDFs (lazy) to avoid browser-only code running at startup in Node
 
 export async function buildResumeContext(input: {
   resumeUrl?: string | null;
@@ -36,18 +35,12 @@ async function readResumeText(resumeUrl?: string | null): Promise<string> {
   try {
     const fileBuffer = await fs.readFile(localPath);
     if (ext === '.pdf') {
+      const parser = new PDFParse({ data: fileBuffer });
       try {
-        const { PDFParse } = await import('pdf-parse');
-        const parser = new PDFParse({ data: fileBuffer });
-        try {
-          const result = await parser.getText();
-          return cleanText(result.text).slice(0, 3500);
-        } finally {
-          await parser.destroy();
-        }
-      } catch (pdfErr) {
-        console.warn('[ResumeContext] PDF parse failed:', pdfErr instanceof Error ? pdfErr.message : pdfErr);
-        return '';
+        const result = await parser.getText();
+        return cleanText(result.text).slice(0, 3500);
+      } finally {
+        await parser.destroy();
       }
     }
     if (ext === '.docx') {
@@ -98,5 +91,8 @@ export function computeResumeJobMatchScore(jobText: string, resumeText: string):
   for (const w of jobWords) {
     if (resumeWords.has(w)) hit++;
   }
-  return Math.round(Math.min(100, (hit / jobWords.size) * 100));
+  const raw = (hit / jobWords.size) * 100;
+  // Scale up so good matches (e.g. 67% keyword overlap) display as ~80%, cap at 100
+  const boosted = Math.min(100, Math.round(raw * 1.2));
+  return boosted;
 }

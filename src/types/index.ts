@@ -37,6 +37,8 @@ export interface Turn {
   codingStarterCode?: string | null;
   codingLanguage?: string | null;
   isCodingQuestion?: boolean;
+  /** For AI turns: optional talking-head video URL (SadTalker + Wav2Lip + Coqui TTS). */
+  avatarVideo?: string;
 }
 
 export interface AnswerEvaluation {

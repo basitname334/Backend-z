@@ -6,8 +6,11 @@ import fs from 'fs';
 import { validate } from '../middleware/validate';
 import { query } from '../../db/client';
 import { optionalAuth } from '../middleware/auth';
+import crypto from 'crypto';
+import { getResumeTextForMatch, computeResumeJobMatchScore } from '../../services/interview/ResumeContextService';
 
 const router = Router();
+const ROLES = ['technical', 'behavioral', 'sales', 'customer_success'] as const;
 const resumeUploadDir = path.resolve(process.cwd(), 'uploads', 'resumes');
 fs.mkdirSync(resumeUploadDir, { recursive: true });
 
@@ -32,8 +35,6 @@ const upload = multer({
     cb(new Error('Only PDF/DOC/DOCX files are allowed'));
   },
 });
-
-const ROLES = ['technical', 'behavioral', 'sales', 'customer_success'] as const;
 
 router.get('/', async (_req: Request, res: Response) => {
   try {
@@ -211,7 +212,56 @@ router.post(
         [candidateId, positionId, resumeUrl?.trim() ? resumeUrl.trim() : null, coverLetter ?? null]
       );
 
-      return res.status(201).json({ application: applicationRows[0] });
+      const applicationId = applicationRows[0].id;
+      let match_score: number | null = null;
+      try {
+        const { rows: posRows } = await query<{ requirements: string | null; description: string | null }>(
+          `SELECT requirements, description FROM positions WHERE id = $1 LIMIT 1`,
+          [positionId]
+        );
+        const jobText = posRows.length ? [posRows[0].requirements ?? '', posRows[0].description ?? ''].join(' ').trim() : '';
+        if (jobText) {
+          const resumeText = await getResumeTextForMatch(resumeUrl?.trim() || null);
+          if (resumeText) {
+            match_score = computeResumeJobMatchScore(jobText, resumeText);
+          } else if (coverLetter?.trim()) {
+            match_score = Math.min(100, Math.round(computeResumeJobMatchScore(jobText, coverLetter) * 1.2));
+          }
+          if (match_score != null) {
+            await query(`UPDATE applications SET match_score = $2, updated_at = NOW() WHERE id = $1`, [applicationId, match_score]);
+          }
+        }
+      } catch (e) {
+        console.warn('Application match score computation failed:', e instanceof Error ? e.message : e);
+      }
+
+      const { rows: posScheduleRows } = await query<{ role: string; created_by: string | null; auto_schedule_enabled: boolean }>(
+        `SELECT role, created_by, COALESCE(auto_schedule_enabled, false) AS auto_schedule_enabled FROM positions WHERE id = $1 LIMIT 1`,
+        [positionId]
+      );
+      const { rows: candidateInfoRows } = await query<{ email: string | null; name: string | null }>(
+        `SELECT email, name FROM candidates WHERE id = $1 LIMIT 1`,
+        [candidateId]
+      );
+      const position = posScheduleRows[0];
+      const candidate = candidateInfoRows[0];
+      if (position?.auto_schedule_enabled && candidate?.email && position.role && ROLES.includes(position.role as (typeof ROLES)[number])) {
+        try {
+          const joinToken = crypto.randomBytes(32).toString('hex');
+          const scheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          scheduledAt.setHours(10, 0, 0, 0);
+          await query(
+            `INSERT INTO scheduled_interviews (id, candidate_email, candidate_name, role, scheduled_at, join_token, position_id, created_by, application_id, created_at, updated_at)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4::timestamptz, $5, $6, $7, $8, NOW(), NOW())`,
+            [candidate.email, candidate.name, position.role, scheduledAt.toISOString(), joinToken, positionId, position.created_by ?? null, applicationId]
+          );
+          await query(`UPDATE applications SET status = 'interview_scheduled', updated_at = NOW() WHERE id = $1`, [applicationId]);
+        } catch (e) {
+          console.warn('Auto-schedule interview failed:', e instanceof Error ? e.message : e);
+        }
+      }
+
+      return res.status(201).json({ application: { ...applicationRows[0], match_score } });
     } catch (e) {
       console.error('Public apply to job error', e);
       return res.status(500).json({ error: 'Failed to submit application' });

@@ -89,10 +89,10 @@ export class SignalingService {
      */
     private async handleInterviewStart(
         socket: Socket,
-        data: { sessionId: string; interviewId: string; category?: string }
+        data: { sessionId: string; interviewId: string; category?: string; interviewerVoice?: string }
     ): Promise<void> {
         try {
-            const { sessionId, interviewId, category } = data;
+            const { sessionId, interviewId, category, interviewerVoice } = data;
 
             logger.info('Starting interview', { sessionId, interviewId, category });
 
@@ -110,10 +110,11 @@ export class SignalingService {
 
             this.sessions.set(sessionId, voiceSession);
 
-            // Start interview with engine
+            // Start interview with engine (Eina / Basit by interviewerVoice: 'basit' or 'male'/'men'/'boys')
             const { greeting, firstQuestion } = await interviewEngineService.startInterview(
                 sessionId,
-                category || 'Technical'
+                category || 'Technical',
+                interviewerVoice
             );
 
             // Send greeting and first question to client

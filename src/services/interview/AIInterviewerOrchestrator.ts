@@ -13,6 +13,7 @@ import { conversationManager } from './ConversationManager';
 import { questionStrategyEngine } from './QuestionStrategyEngine';
 import { evaluationEngine } from './EvaluationEngine';
 import { scoringReportService } from './ScoringReportService';
+import { avatarService } from '../avatar/avatar.service';
 import type { InterviewState, InterviewReport } from '../../types';
 
 export interface SubmitAnswerInput {
@@ -26,6 +27,8 @@ export interface SubmitAnswerResult {
   success: boolean;
   state: InterviewState | null;
   nextReply?: string;
+  /** Talking-head video URL for nextReply when avatar pipeline is enabled and succeeds. */
+  avatarVideo?: string;
   evaluation?: { score: number; maxScore: number };
   report?: InterviewReport;
   /** Set when success is false: why the submission was rejected */
@@ -42,6 +45,8 @@ export interface GetNextReplyResult {
   success: boolean;
   state: InterviewState | null;
   reply: string;
+  /** Talking-head video URL for this reply when avatar pipeline is enabled and succeeds. */
+  avatarVideo?: string;
   questionId?: string;
   phase?: string;
 }
@@ -56,15 +61,22 @@ export class AIInterviewerOrchestrator {
     }
   }
 
+  /** Intervion AI interviewer names: Ethan for technical, ZaraAlex for other roles. */
+  private interviewerName(role: string): string {
+    return role === 'technical' ? 'Ethan' : 'ZaraAlex';
+  }
+
   private withGreetingIfFirstTurn(state: InterviewState, reply: string): string {
     const trimmed = (reply || '').trim();
     if (state.turns.length > 0) return trimmed;
+    const name = this.interviewerName(state.role);
+    const intro = `Hi, I'm ${name} from Intervion AI. Welcome to this ${this.roleLabel(state.role)} interview.`;
     if (!trimmed) {
-      return `Hello! Welcome to this ${this.roleLabel(state.role)} interview. Let's get started.`;
+      return `${intro} Let's get started.`;
     }
-    const alreadyGreeting = /^(hi|hello|welcome)\b/i.test(trimmed);
+    const alreadyGreeting = /^(hi|hello|welcome|i'?m)\b/i.test(trimmed);
     if (alreadyGreeting) return trimmed;
-    return `Hello! Welcome to this ${this.roleLabel(state.role)} interview. ${trimmed}`;
+    return `${intro} ${trimmed}`;
   }
 
   /**
@@ -123,12 +135,28 @@ export class AIInterviewerOrchestrator {
       };
     }
 
-    const aiReply = await this.getNextReplyInternal(updatedState, next.questionText, next.questionId, next.phase, lastQuestionText, input.answerText);
+    let aiReply: string;
+    try {
+      aiReply = await this.getNextReplyInternal(updatedState, next.questionText, next.questionId, next.phase, lastQuestionText, input.answerText);
+    } catch (err) {
+      console.error('getNextReplyInternal failed (using fallback):', err);
+      aiReply = next.questionText || 'Thank you for that. Can you tell me a bit more?';
+    }
+    let avatarVideo: string | undefined;
+    try {
+      if (avatarService.isEnabled()) {
+        const avatarResult = await avatarService.generateAvatarWithTimeout({ text: aiReply });
+        avatarVideo = avatarResult.videoUrl;
+      }
+    } catch (err) {
+      console.error('Avatar generation failed (non-blocking):', err);
+    }
     const aiTurn = conversationManager.createTurn('ai', aiReply, {
       questionId: next.questionId,
       codingStarterCode: next.starterCode ?? undefined,
       codingLanguage: next.language ?? undefined,
       isCodingQuestion: next.isCodingQuestion ?? false,
+      avatarVideo,
     });
     await interviewSessionService.appendTurn(input.interviewId, aiTurn, {
       phase: next.phase,
@@ -140,6 +168,7 @@ export class AIInterviewerOrchestrator {
       success: true,
       state: finalState ?? updatedState,
       nextReply: aiReply,
+      avatarVideo,
       evaluation: { score: evaluation.score, maxScore: evaluation.maxScore },
     };
   }
@@ -166,17 +195,32 @@ export class AIInterviewerOrchestrator {
       return { success: false, state, reply: '' };
     }
 
-    // First question (intro): use template verbatim so we ask about background first; do not let LLM rephrase using resume (e.g. "frontend") and skip ahead.
     const isFirstQuestion = state.turns.length === 0;
-    const rawReply = isFirstQuestion
-      ? next.questionText
-      : await this.getNextReplyInternal(state, next.questionText, next.questionId, next.phase);
+    let rawReply: string;
+    if (isFirstQuestion && state.resumeContext?.trim()) {
+      rawReply = await this.getFirstQuestionFromResume(state);
+      if (!rawReply?.trim()) rawReply = next.questionText;
+    } else if (isFirstQuestion) {
+      rawReply = next.questionText;
+    } else {
+      rawReply = await this.getNextReplyInternal(state, next.questionText, next.questionId, next.phase);
+    }
     const reply = this.withGreetingIfFirstTurn(state, rawReply);
+    let avatarVideo: string | undefined;
+    try {
+      if (avatarService.isEnabled()) {
+        const avatarResult = await avatarService.generateAvatarWithTimeout({ text: reply });
+        avatarVideo = avatarResult.videoUrl;
+      }
+    } catch (err) {
+      console.error('Avatar generation failed (non-blocking):', err);
+    }
     const aiTurn = conversationManager.createTurn('ai', reply, {
       questionId: next.questionId,
       codingStarterCode: next.starterCode ?? undefined,
       codingLanguage: next.language ?? undefined,
       isCodingQuestion: next.isCodingQuestion ?? false,
+      avatarVideo,
     });
     await interviewSessionService.appendTurn(input.interviewId, aiTurn, {
       phase: next.phase,
@@ -188,9 +232,37 @@ export class AIInterviewerOrchestrator {
       success: true,
       state: updatedState ?? state,
       reply,
+      avatarVideo,
       questionId: next.questionId,
       phase: next.phase,
     };
+  }
+
+  /** When resume is available, generate the first question by reading the resume thoroughly. */
+  private async getFirstQuestionFromResume(state: InterviewState): Promise<string> {
+    const resumeContextBlock = state.resumeContext
+      ? `\nCandidate resume/profile context (read this thoroughly before deciding your first question):\n${state.resumeContext}\n\nYou MUST base your first question on something specific from this resume.`
+      : '';
+    const systemContent =
+      SYSTEM_PROMPT_INTERVIEWER.replace('{{phase}}', state.phase)
+        .replace('{{role}}', state.role) +
+      resumeContextBlock;
+    const userInstruction = `Read the candidate's resume above thoroughly. Your task is to ask the very first interview question. Decide on ONE opening question that references something specific from their resume (e.g. a project, role, skill, or experience). Be conversational and natural. Respond only with valid JSON: {"reply": "<your first question>", "intent": "next_question", "suggestedNextPhase": null}`;
+    const messages = [
+      { role: 'system' as const, content: systemContent },
+      { role: 'user' as const, content: userInstruction },
+    ];
+    const llm = getLLMService();
+    try {
+      const response = await llm.chat(messages, { temperature: 0.4, maxTokens: 320, timeoutMs: 10000 });
+      const raw = (response.content || '').replace(/```json?\s*/g, '').trim();
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.reply === 'string' && parsed.reply.length > 0) return parsed.reply.trim();
+      if (raw.length > 15 && !raw.startsWith('{')) return raw;
+    } catch {
+      // fallback to template question
+    }
+    return '';
   }
 
   private async getNextReplyInternal(
@@ -203,7 +275,7 @@ export class AIInterviewerOrchestrator {
   ): Promise<string> {
     const context = conversationManager.buildContext(state);
     const resumeContextBlock = state.resumeContext
-      ? `\nCandidate resume/profile context:\n${state.resumeContext}\n\nUse this context to personalize your question phrasing, probe deeper into resume claims, and keep questions relevant to the candidate background.`
+      ? `\nCandidate resume/profile context (use thoroughly when deciding each question):\n${state.resumeContext}\n\nUse this context to personalize every question: reference their background, probe deeper into resume claims, and keep questions relevant to the candidate.`
       : '';
     const focusAreasBlock = state.focusAreas
       ? `\nInterview focus areas / subject (set by recruiter): ${state.focusAreas}. Prioritize questions and topics related to these areas when relevant.`

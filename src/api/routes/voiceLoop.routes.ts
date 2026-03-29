@@ -26,12 +26,12 @@ const upload = multer({
   },
 });
 
-function firstQuestionMessages(role: string): { role: 'system' | 'user'; content: string }[] {
+function firstQuestionMessages(role: string, interviewerName: string): { role: 'system' | 'user'; content: string }[] {
   const roleContext = role ? ` The interview is for the role: ${role}.` : '';
   return [
     {
       role: 'system',
-      content: `You are a professional AI interviewer. Generate exactly one short opening interview question to ask the candidate. Ask about their background or why they are interested in the role.${roleContext} Reply with only the question text, no preamble or quotes.`,
+      content: `You are ${interviewerName}, a professional AI interviewer. Speak naturally and keep the conversation flowing. Generate exactly one short opening interview question to ask the candidate. Ask about their background or why they are interested in the role.${roleContext} Reply with only the question text, no preamble or quotes.`,
     },
     { role: 'user', content: 'Generate the first interview question.' },
   ];
@@ -42,12 +42,19 @@ function roleLabel(role: string): string {
   return role.replace(/_/g, ' ');
 }
 
-function nextQuestionMessages(previousAnswer: string, role: string): { role: 'system' | 'user'; content: string }[] {
+/** Interviewer name: Eina (default) or Basit when user selects male/boys. */
+function interviewerName(voiceOrGender?: string): string {
+  const v = (voiceOrGender || '').toLowerCase();
+  if (v === 'male' || v === 'men' || v === 'boys' || v === 'basit') return 'Basit';
+  return 'Eina';
+}
+
+function nextQuestionMessages(previousAnswer: string, role: string, interviewerName: string): { role: 'system' | 'user'; content: string }[] {
   const roleContext = role ? ` The interview is for the role: ${role}.` : '';
   return [
     {
       role: 'system',
-      content: `You are a professional AI interviewer. The candidate just gave an answer. Generate exactly one follow-up or next interview question. Keep it concise and relevant.${roleContext} Reply with only the question text, no preamble or quotes.`,
+      content: `You are ${interviewerName}, a professional AI interviewer. Keep the conversation flowing; listen and respond naturally. The candidate just gave an answer. Generate exactly one follow-up or next interview question. Keep it concise and relevant.${roleContext} Reply with only the question text, no preamble or quotes.`,
     },
     {
       role: 'user',
@@ -56,15 +63,17 @@ function nextQuestionMessages(previousAnswer: string, role: string): { role: 'sy
   ];
 }
 
-/** POST /voice-loop/start-interview – get first question (optionally by role) */
+/** POST /voice-loop/start-interview – get first question (optionally by role; interviewerVoice: 'eina' | 'basit' or gender 'male'/'men'/'boys' for Basit) */
 router.post('/start-interview', async (req: Request, res: Response) => {
   try {
     const role = typeof req.body?.role === 'string' ? req.body.role.trim() : '';
+    const voiceOrGender = typeof req.body?.interviewerVoice === 'string' ? req.body.interviewerVoice : (typeof req.body?.gender === 'string' ? req.body.gender : '');
+    const name = interviewerName(voiceOrGender);
     const llm = getLLMService();
-    const out = await llm.chat(firstQuestionMessages(role));
+    const out = await llm.chat(firstQuestionMessages(role, name));
     const question = (out.content || '').replace(/^["']|["']$/g, '').trim() || 'Tell me a bit about your background and what drew you to this role.';
-    const greeting = `Hello! Welcome to this ${roleLabel(role)} interview.`;
-    res.json({ question: `${greeting} ${question}`.trim() });
+    const greeting = `Hello! I'm ${name}, your AI interviewer. Welcome to this ${roleLabel(role)} interview.`;
+    res.json({ question: `${greeting} ${question}`.trim(), interviewerName: name });
   } catch (e) {
     logger.error('Voice loop start-interview failed', { error: e });
     res.status(500).json({ error: 'Failed to generate first question' });
@@ -99,13 +108,15 @@ router.post('/transcribe', upload.single('audio'), async (req: Request, res: Res
   }
 });
 
-/** POST /voice-loop/next-question – send candidate answer, return next question (optionally by role) */
+/** POST /voice-loop/next-question – send candidate answer, return next question (optionally role + interviewerVoice for Eina/Basit) */
 router.post('/next-question', async (req: Request, res: Response) => {
   try {
     const answer = typeof req.body?.answer === 'string' ? req.body.answer : '';
     const role = typeof req.body?.role === 'string' ? req.body.role.trim() : '';
+    const voiceOrGender = typeof req.body?.interviewerVoice === 'string' ? req.body.interviewerVoice : (typeof req.body?.gender === 'string' ? req.body.gender : '');
+    const name = interviewerName(voiceOrGender);
     const llm = getLLMService();
-    const out = await llm.chat(nextQuestionMessages(answer || '(No answer captured)', role));
+    const out = await llm.chat(nextQuestionMessages(answer || '(No answer captured)', role, name));
     const question = (out.content || '').replace(/^["']|["']$/g, '').trim() || 'Could you tell me more?';
     res.json({ question });
   } catch (e) {

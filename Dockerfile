@@ -49,6 +49,7 @@ FROM node:18-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+# App listens on process.env.PORT (default 4000). Northflank/Render override PORT at runtime — match service port to this.
 ENV PORT=4000
 # Ollama bind to loopback only (host:port); Node app is the web service Render probes
 ENV OLLAMA_HOST=127.0.0.1:11434

@@ -19,6 +19,9 @@ import { recruiterRoutes } from './routes/recruiter';
 import { transcribeRoutes } from './routes/transcribe.routes';
 import { publicJobsRoutes } from './routes/publicJobs';
 import { candidateAuthRoutes } from './routes/candidateAuth';
+import { communityRoutes } from './routes/community';
+import heygenRoutes from './routes/heygen';
+import { avatarRoutes } from './routes/avatar';
 
 const app = express();
 
@@ -37,6 +40,7 @@ app.use(`${config.apiPrefix}/recruiter`, recruiterRoutes);
 app.use(`${config.apiPrefix}/public/join`, publicJoinRoutes);
 app.use(`${config.apiPrefix}/public/jobs`, publicJobsRoutes);
 app.use(`${config.apiPrefix}/candidate`, candidateAuthRoutes);
+app.use(`${config.apiPrefix}/community`, communityRoutes);
 app.use(`${config.apiPrefix}/ai`, aiRoutes);
 app.use(`${config.apiPrefix}/llm`, llmRoutes);
 app.use(`${config.apiPrefix}/voice-interview`, voiceInterviewRoutes);
@@ -45,5 +49,9 @@ app.use(`${config.apiPrefix}/voice-loop`, voiceLoopRoutes);
 app.use(`${config.apiPrefix}/transcribe`, transcribeRoutes);
 // Alias to satisfy clients expecting POST /api/transcribe
 app.use('/api/transcribe', transcribeRoutes);
+// HeyGen streaming avatar token proxy (keeps API key secret)
+app.use(`${config.apiPrefix}/heygen`, heygenRoutes);
+// SadTalker + Wav2Lip + Coqui TTS talking-head avatar
+app.use(`${config.apiPrefix}/avatar`, avatarRoutes);
 
 export default app;

@@ -2,13 +2,15 @@
  * Central configuration. All env vars are read here so the rest of the app
  * stays env-agnostic and testable. For scale, consider validation (e.g. zod).
  */
+import path from 'path';
 import dotenv from 'dotenv';
 
-dotenv.config();
+// Load .env from backend folder so MAIL_FROM etc. are always from backend/.env (not cwd)
+const backendRoot = path.resolve(__dirname, '../..');
+dotenv.config({ path: path.join(backendRoot, '.env') });
 
 export const config = {
   env: process.env.NODE_ENV || 'development',
-  // Render and Docker: always use PORT from env so the web process binds to the expected port
   port: parseInt(process.env.PORT || '4000', 10),
   apiPrefix: process.env.API_PREFIX || '/api/v1',
 
@@ -55,12 +57,25 @@ export const config = {
     password: process.env.ADMIN_PASSWORD || 'admin123',
   },
 
+  /** HeyGen streaming avatar API key (https://app.heygen.com/settings?nav=API). */
+  heygenApiKey: process.env.HEYGEN_API_KEY || '',
+
   /** Base URL of the frontend (for join links). No trailing slash. */
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
 
+  /** Avatar pipeline (SadTalker + Wav2Lip + Coqui TTS). When enabled, AI interviewer replies can include a talking-head video. */
+  avatar: {
+    enabled: String(process.env.AVATAR_ENABLED || 'false').toLowerCase() === 'true',
+    defaultImage: process.env.AVATAR_DEFAULT_IMAGE || '/avatars/interviewer.png',
+    outputPath: process.env.AVATAR_OUTPUT_PATH || 'uploads/avatars',
+    /** Max time in ms to wait for avatar generation before returning reply without video (non-blocking). */
+    generationTimeoutMs: parseInt(process.env.AVATAR_GENERATION_TIMEOUT_MS || '2500', 10),
+    /** Python script path (relative to backend cwd or absolute). Default: ../ai-avatar/generate_avatar.py when backend runs from its folder. */
+    pythonScriptPath: process.env.AVATAR_PYTHON_SCRIPT || path.join('..', 'ai-avatar', 'generate_avatar.py'),
+  },
+
+  /** Mail used when the app sends email (e.g. password reset, interview schedule). From = MAIL_FROM; recipient = user who requested reset or candidate. */
   mail: {
-    /** Set to 'false' to disable sending (schedule flow still runs; join URL is returned). Re-enable when ready. */
-    enabled: process.env.MAIL_ENABLED !== 'false',
     service: process.env.MAIL_SERVICE || process.env.SMTP_SERVICE || '',
     host: process.env.MAIL_HOST || process.env.SMTP_HOST || process.env.EMAIL_HOST || '',
     port: parseInt(process.env.MAIL_PORT || process.env.SMTP_PORT || '587', 10),

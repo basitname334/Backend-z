@@ -7,7 +7,7 @@ import { validate } from '../middleware/validate';
 import { recruiterAuthMiddleware } from '../middleware/auth';
 import { query } from '../../db/client';
 import { config } from '../../config';
-import { sendInterviewScheduleEmail } from '../../services/email.service';
+import { sendInterviewScheduleEmail, sendPasswordResetEmail } from '../../services/email.service';
 import { getResumeTextForMatch, computeResumeJobMatchScore } from '../../services/interview/ResumeContextService';
 import type { DifficultyLevel, ScheduledCustomQuestion } from '../../types';
 
@@ -54,10 +54,8 @@ function normalizeScheduleQuestions(input: {
 
   const defaultDifficulty = input.defaultDifficulty ?? 'medium';
   const general = toList(input.customQuestionsRaw, { isCoding: false, defaultDifficulty });
-  const coding =
-    input.role === 'technical'
-      ? toList(input.codingQuestionsRaw, { isCoding: true, defaultDifficulty })
-      : [];
+  // Allow coding questions for all roles — recruiter-added coding question is served as the last question
+  const coding = toList(input.codingQuestionsRaw, { isCoding: true, defaultDifficulty });
   return [...general, ...coding].slice(0, 30);
 }
 
@@ -127,6 +125,7 @@ router.post(
     body('location').optional().isString(),
     body('salaryRange').optional().isString(),
     body('role').isIn(ROLES),
+    body('autoScheduleEnabled').optional().isBoolean(),
   ]),
   async (req: Request, res: Response) => {
     const user = (req as Request & { user: { userId?: string } }).user;
@@ -143,7 +142,7 @@ router.post(
       return res.status(403).json({ error: 'Limited access: you cannot create jobs. Schedule from existing applications only.' });
     }
     try {
-      const { title, companyName, description, requirements, location, salaryRange, role } = req.body as {
+      const { title, companyName, description, requirements, location, salaryRange, role, autoScheduleEnabled } = req.body as {
         title: string;
         companyName?: string;
         description?: string;
@@ -151,6 +150,7 @@ router.post(
         location?: string;
         salaryRange?: string;
         role: (typeof ROLES)[number];
+        autoScheduleEnabled?: boolean;
       };
       const { rows } = await query<{
         id: string;
@@ -164,10 +164,10 @@ router.post(
         is_active: boolean;
         created_at: string;
       }>(
-        `INSERT INTO positions (id, title, company_name, description, requirements, location, salary_range, role, is_active, created_by, created_at)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, true, $8, NOW())
+        `INSERT INTO positions (id, title, company_name, description, requirements, location, salary_range, role, is_active, auto_schedule_enabled, created_by, created_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, true, $8, $9, NOW())
          RETURNING id, title, company_name, description, requirements, location, salary_range, role, is_active, created_at`,
-        [title, companyName ?? null, description ?? null, requirements ?? null, location ?? null, salaryRange ?? null, role, userId]
+        [title, companyName ?? null, description ?? null, requirements ?? null, location ?? null, salaryRange ?? null, role, autoScheduleEnabled === true, userId]
       );
       return res.status(201).json({ job: rows[0] });
     } catch (e) {
@@ -227,8 +227,9 @@ router.get('/applications', recruiterAuthMiddleware, async (req: Request, res: R
     position_description: string | null;
     interview_email_sent: boolean | null;
     interview_email_error: string | null;
+    match_score: number | null;
   }>(
-    `SELECT a.id, a.status, a.resume_url, a.cover_letter, a.created_at, a.candidate_id, a.position_id,
+    `SELECT a.id, a.status, a.resume_url, a.cover_letter, a.created_at, a.candidate_id, a.position_id, a.match_score,
             c.email AS candidate_email, c.name AS candidate_name, p.title AS position_title, p.role AS position_role,
             p.requirements AS position_requirements, p.description AS position_description,
             si.email_sent AS interview_email_sent, si.email_error AS interview_email_error
@@ -249,10 +250,10 @@ router.get('/applications', recruiterAuthMiddleware, async (req: Request, res: R
 
   const applications = await Promise.all(
     rows.map(async (row) => {
-      const jobText = [row.position_requirements ?? '', row.position_description ?? ''].join(' ').trim();
-      let match_score: number | null = null;
-      if (row.resume_url && jobText) {
+      let match_score = row.match_score ?? null;
+      if (match_score == null && row.resume_url && [row.position_requirements ?? '', row.position_description ?? ''].join(' ').trim()) {
         try {
+          const jobText = [row.position_requirements ?? '', row.position_description ?? ''].join(' ').trim();
           const resumeText = await getResumeTextForMatch(row.resume_url);
           match_score = resumeText ? computeResumeJobMatchScore(jobText, resumeText) : null;
         } catch {
@@ -442,6 +443,75 @@ router.post(
     } catch (e) {
       console.error('Recruiter schedule from application error', e);
       return res.status(500).json({ error: 'Failed to schedule interview' });
+    }
+  }
+);
+
+router.post(
+  '/forgot-password',
+  validate([body('email').isEmail()]),
+  async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body as { email: string };
+      const normalizedEmail = email.toLowerCase();
+      const { rows } = await query<{ id: string }>(
+        `SELECT id FROM users WHERE email = $1 AND role = 'recruiter' AND is_active = true LIMIT 1`,
+        [normalizedEmail]
+      );
+      if (rows.length === 0) {
+        return res.json({ ok: true, message: 'If that email is registered, you will receive a 6-digit code. Check your inbox and spam.' });
+      }
+      const code = crypto.randomInt(100_000, 999_999).toString();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      await query(
+        `INSERT INTO recruiter_password_resets (id, email, code, expires_at) VALUES (gen_random_uuid(), $1, $2, $3)`,
+        [normalizedEmail, code, expiresAt]
+      );
+      const resetLink = `${config.frontendUrl}/recruiter/forgot-password?step=code&email=${encodeURIComponent(normalizedEmail)}`;
+      const mailResult = await sendPasswordResetEmail({
+        to: normalizedEmail,
+        code,
+        resetLink,
+      });
+      if (!mailResult.sent) {
+        console.error('Recruiter forgot-password: email not sent (check MAIL_* config)', mailResult.error);
+      }
+      return res.json({ ok: true, message: 'Check your email for a 6-digit code. If you don’t see it, check spam or try again.' });
+    } catch (e) {
+      console.error('Recruiter forgot-password error', e);
+      return res.status(500).json({ error: 'Failed to send reset code' });
+    }
+  }
+);
+
+router.post(
+  '/reset-password',
+  validate([
+    body('email').isEmail(),
+    body('code').isString().isLength({ min: 6, max: 10 }),
+    body('newPassword').isString().isLength({ min: 6 }),
+  ]),
+  async (req: Request, res: Response) => {
+    try {
+      const { email, code, newPassword } = req.body as { email: string; code: string; newPassword: string };
+      const normalizedEmail = email.toLowerCase();
+      const { rows } = await query<{ id: string }>(
+        `SELECT id FROM recruiter_password_resets WHERE email = $1 AND code = $2 AND expires_at > NOW() LIMIT 1`,
+        [normalizedEmail, code.trim()]
+      );
+      if (rows.length === 0) {
+        return res.status(400).json({ error: 'Invalid or expired code. Request a new one.' });
+      }
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await query(
+        `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE email = $2 AND role = 'recruiter'`,
+        [passwordHash, normalizedEmail]
+      );
+      await query(`DELETE FROM recruiter_password_resets WHERE email = $1`, [normalizedEmail]);
+      return res.json({ ok: true, message: 'Password updated. You can log in now.' });
+    } catch (e) {
+      console.error('Recruiter reset-password error', e);
+      return res.status(500).json({ error: 'Failed to update password' });
     }
   }
 );
